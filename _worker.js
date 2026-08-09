@@ -71,7 +71,10 @@ export default {
 		} else if (管理员密码 && !访问路径.startsWith('admin/') && 访问路径 !== 'login' && request.method === 'POST') {// gRPC/XHTTP代理
 			const 反代上下文 = await 反代参数获取(url, userID, 默认反代IP, 默认反代兜底);
 			const referer = request.headers.get('Referer') || '';
-			const 命中XHTTP特征 = referer.includes('x_padding', 14) || referer.includes('x_padding=');
+			const { 头: 本机Padding头, 键: 本机Padding键 } = 获取XHTTPPadding标识(userID);
+			const 命中XHTTP特征 = referer.includes('x_padding', 14) || referer.includes('x_padding=')
+				|| !!request.headers.get(本机Padding头)
+				|| !!url.searchParams.get(本机Padding键);
 			if (!命中XHTTP特征 && contentType.startsWith('application/grpc')) {
 				log(`[gRPC] 命中请求: ${url.pathname}${url.search}`);
 				return await 处理gRPC请求(request, userID, 反代上下文);
@@ -528,8 +531,127 @@ export default {
 	}
 };
 ///////////////////////////////////////////////////////////////////////XHTTP传输数据///////////////////////////////////////////////
+// ========== XHTTP obfs padding 支持 ==========
+// 链接生成处（获取传输协议配置）为 xhttp 节点注入：
+//   extra={"xPaddingObfsMode":true,"xPaddingMethod":"tokenish","xPaddingPlacement":"queryInHeader",
+//          "xPaddingHeader":"<UUID.slice(1,7)>","xPaddingKey":"_<UUID.slice(1,7)>"}
+// 客户端据此把 base62 padding 以「URL 形式放进 xPaddingHeader 头」或「放进 URL query」发送；
+// 服务端需提取并做 HPACK Huffman 字节长度校验（tokenish：100-2 <= len <= 1000+2），校验通过后 padding 直接丢弃。
+// 以下 HPACK Huffman 码表为 RFC 7541 Appendix B 的完整 257 项（含索引 256 的 EOS 符号），取自 golang.org/x/net/http2/hpack/tables.go，
+const HPACKHuffman码表 = [
+	0x1ff8, 0x7fffd8, 0xfffffe2, 0xfffffe3, 0xfffffe4, 0xfffffe5, 0xfffffe6, 0xfffffe7,
+	0xfffffe8, 0xffffea, 0x3ffffffc, 0xfffffe9, 0xfffffea, 0x3ffffffd, 0xfffffeb, 0xfffffec,
+	0xfffffed, 0xfffffee, 0xfffffef, 0xffffff0, 0xffffff1, 0xffffff2, 0x3ffffffe, 0xffffff3,
+	0xffffff4, 0xffffff5, 0xffffff6, 0xffffff7, 0xffffff8, 0xffffff9, 0xffffffa, 0xffffffb,
+	0x14, 0x3f8, 0x3f9, 0xffa, 0x1ff9, 0x15, 0xf8, 0x7fa,
+	0x3fa, 0x3fb, 0xf9, 0x7fb, 0xfa, 0x16, 0x17, 0x18,
+	0x0, 0x1, 0x2, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+	0x1e, 0x1f, 0x5c, 0xfb, 0x7ffc, 0x20, 0xffb, 0x3fc,
+	0x1ffa, 0x21, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62,
+	0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a,
+	0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70, 0x71, 0x72,
+	0xfc, 0x73, 0xfd, 0x1ffb, 0x7fff0, 0x1ffc, 0x3ffc, 0x22,
+	0x7ffd, 0x3, 0x23, 0x4, 0x24, 0x5, 0x25, 0x26,
+	0x27, 0x6, 0x74, 0x75, 0x28, 0x29, 0x2a, 0x7,
+	0x2b, 0x76, 0x2c, 0x8, 0x9, 0x2d, 0x77, 0x78,
+	0x79, 0x7a, 0x7b, 0x7ffe, 0x7fc, 0x3ffd, 0x1ffd, 0xffffffc,
+	0xfffe6, 0x3fffd2, 0xfffe7, 0xfffe8, 0x3fffd3, 0x3fffd4, 0x3fffd5, 0x7fffd9,
+	0x3fffd6, 0x7fffda, 0x7fffdb, 0x7fffdc, 0x7fffdd, 0x7fffde, 0xffffeb, 0x7fffdf,
+	0xffffec, 0xffffed, 0x3fffd7, 0x7fffe0, 0xffffee, 0x7fffe1, 0x7fffe2, 0x7fffe3,
+	0x7fffe4, 0x1fffdc, 0x3fffd8, 0x7fffe5, 0x3fffd9, 0x7fffe6, 0x7fffe7, 0xffffef,
+	0x3fffda, 0x1fffdd, 0xfffe9, 0x3fffdb, 0x3fffdc, 0x7fffe8, 0x7fffe9, 0x1fffde,
+	0x7fffea, 0x3fffdd, 0x3fffde, 0xfffff0, 0x1fffdf, 0x3fffdf, 0x7fffeb, 0x7fffec,
+	0x1fffe0, 0x1fffe1, 0x3fffe0, 0x1fffe2, 0x7fffed, 0x3fffe1, 0x7fffee, 0x7fffef,
+	0xfffea, 0x3fffe2, 0x3fffe3, 0x3fffe4, 0x7ffff0, 0x3fffe5, 0x3fffe6, 0x7ffff1,
+	0x3ffffe0, 0x3ffffe1, 0xfffeb, 0x7fff1, 0x3fffe7, 0x7ffff2, 0x3fffe8, 0x1ffffec,
+	0x3ffffe2, 0x3ffffe3, 0x3ffffe4, 0x7ffffde, 0x7ffffdf, 0x3ffffe5, 0xfffff1, 0x1ffffed,
+	0x7fff2, 0x1fffe3, 0x3ffffe6, 0x7ffffe0, 0x7ffffe1, 0x3ffffe7, 0x7ffffe2, 0xfffff2,
+	0x1fffe4, 0x1fffe5, 0x3ffffe8, 0x3ffffe9, 0xffffffd, 0x7ffffe3, 0x7ffffe4, 0x7ffffe5,
+	0xfffec, 0xfffff3, 0xfffed, 0x1fffe6, 0x3fffe9, 0x1fffe7, 0x1fffe8, 0x7ffff3,
+	0x3fffea, 0x3fffeb, 0x1ffffee, 0x1ffffef, 0xfffff4, 0xfffff5, 0x3ffffea, 0x7ffff4,
+	0x3ffffeb, 0x7ffffe6, 0x3ffffec, 0x3ffffed, 0x7ffffe7, 0x7ffffe8, 0x7ffffe9, 0x7ffffea,
+	0x7ffffeb, 0xffffffe, 0x7ffffec, 0x7ffffed, 0x7ffffee, 0x7ffffef, 0x7fffff0, 0x3ffffee,
+	0x3fffffff
+];
+const HPACKHuffman码长 = [
+	13, 23, 28, 28, 28, 28, 28, 28, 28, 24, 30, 28, 28, 30, 28, 28,
+	28, 28, 28, 28, 28, 28, 30, 28, 28, 28, 28, 28, 28, 28, 28, 28,
+	6, 10, 10, 12, 13, 6, 8, 11, 10, 10, 8, 11, 8, 6, 6, 6,
+	5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 8, 15, 6, 12, 10,
+	13, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 8, 7, 8, 13, 19, 13, 14, 6,
+	15, 5, 6, 5, 6, 5, 6, 6, 6, 5, 7, 7, 6, 6, 6, 5,
+	6, 7, 6, 5, 5, 6, 7, 7, 7, 7, 7, 15, 11, 14, 13, 28,
+	20, 22, 20, 20, 22, 22, 22, 23, 22, 23, 23, 23, 23, 23, 24, 23,
+	24, 24, 22, 23, 24, 23, 23, 23, 23, 21, 22, 23, 22, 23, 23, 24,
+	22, 21, 20, 22, 22, 23, 23, 21, 23, 22, 22, 24, 21, 22, 23, 23,
+	21, 21, 22, 21, 23, 22, 23, 23, 20, 22, 22, 22, 23, 22, 22, 23,
+	26, 26, 20, 19, 22, 23, 22, 25, 26, 26, 26, 27, 27, 26, 24, 25,
+	19, 21, 26, 27, 27, 26, 27, 24, 21, 21, 26, 26, 28, 27, 27, 27,
+	20, 24, 20, 21, 22, 21, 21, 23, 22, 22, 25, 25, 24, 24, 26, 23,
+	26, 27, 26, 26, 27, 27, 27, 27, 27, 28, 27, 27, 27, 27, 27, 26,
+	30
+];
+
+// 由 UUID 推导本机 XHTTP padding 头名/键名（与链接生成处 extra 的 xPaddingHeader / xPaddingKey 完全一致）
+function 获取XHTTPPadding标识(yourUUID) {
+	return { 头: yourUUID.slice(1, 7), 键: '_' + yourUUID.slice(1, 7) };
+}
+
+// 计算字符串经 HPACK Huffman 编码后的字节长度（向上取整；与官方 hpack.HuffmanEncodeLength 等价，按 UTF-8 字节遍历）
+function 计算HPACKHuffman字节长度(字符串) {
+	const 字节 = new TextEncoder().encode(字符串);
+	let 总位数 = 0;
+	for (let i = 0; i < 字节.length; i++) {
+		总位数 += HPACKHuffman码长[字节[i]];
+	}
+	return Math.ceil(总位数 / 8);
+}
+
+// 提取 XHTTP obfs padding 值（对应官方 ExtractXPaddingFromRequest，obfs 模式；本项目客户端使用 queryInHeader，不启用 cookie）
+// 优先级：① Header xPaddingHeader（值为 URL 形式时取其中 query 参数 xPaddingKey，取不到则回退用头值本身）② URL query 参数 xPaddingKey
+// 返回 '' 表示请求未携带 padding
+function 提取XHTTPPadding值(request, 本机Padding头, 本机Padding键) {
+	const 头值 = request.headers.get(本机Padding头);
+	if (头值) {
+		try {
+			const 解析URL = new URL(头值, 'https://x.invalid');
+			const 查询值 = 解析URL.searchParams.get(本机Padding键);
+			if (查询值) return 查询值;
+		} catch (e) { }
+		return 头值;
+	}
+	const 请求URL = new URL(request.url);
+	return 请求URL.searchParams.get(本机Padding键) || '';
+}
+
+// 校验 XHTTP obfs padding（对应官方 IsPaddingValid，tokenish 方法）
+// @returns {boolean} true=校验通过或请求未携带 padding（放行）；false=携带 padding 但校验失败（应返回 400）
+function 校验XHTTPPadding(request, 本机Padding头, 本机Padding键) {
+	const padding值 = 提取XHTTPPadding值(request, 本机Padding头, 本机Padding键);
+	if (!padding值) return true; // 无 padding：兼容旧客户端/非 padding 请求，直接放行
+	const huffman长度 = 计算HPACKHuffman字节长度(padding值);
+	// tokenish：huffman 编码字节长度须在 [100-2, 1000+2] 容差范围内
+	return huffman长度 >= 98 && huffman长度 <= 1002;
+}
+
+// 生成随机 base62 padding 串（用于响应端 padding，官方 GeneratePadding tokenish 的简化版；客户端不校验响应 padding）
+const XHTTPBase62字符集 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+function 生成XHTTPPadding串(长度) {
+	const 字符集长度 = XHTTPBase62字符集.length;
+	let 结果 = '';
+	for (let i = 0; i < 长度; i++) {
+		结果 += XHTTPBase62字符集[Math.floor(Math.random() * 字符集长度)];
+	}
+	return 结果;
+}
+
 async function 处理XHTTP请求(request, yourUUID, 反代上下文 = {}) {
 	if (!request.body) return new Response('Bad Request', { status: 400 });
+	// XHTTP obfs padding 提取与校验（官方 ExtractXPaddingFromRequest + IsPaddingValid）
+	// 校验通过或请求未携带 padding → 放行；携带 padding 但校验失败 → 400（padding 数据不解码、直接丢弃，不影响首包解析）
+	const { 头: 本机Padding头, 键: 本机Padding键 } = 获取XHTTPPadding标识(yourUUID);
+	if (!校验XHTTPPadding(request, 本机Padding头, 本机Padding键)) return new Response('Bad Request', { status: 400 });
 	const reader = request.body.getReader();
 	const 首包 = await 读取XHTTP首包(reader, yourUUID);
 	if (!首包) {
@@ -557,6 +679,13 @@ async function 处理XHTTP请求(request, yourUUID, 反代上下文 = {}) {
 		'X-Accel-Buffering': 'no',
 		'Cache-Control': 'no-store'
 	});
+	// 响应端 padding（官方 ApplyXPaddingToResponse 对应，obfs queryInHeader：头名=本机Padding头，值为含 query 的 URL 形式）
+	// 客户端不校验响应 padding，仅作响应特征混淆；随机长度 100~1000
+	try {
+		const 响应URL = new URL(request.url);
+		响应URL.searchParams.set(本机Padding键, 生成XHTTPPadding串(100 + Math.floor(Math.random() * 901)));
+		responseHeaders.set(本机Padding头, 响应URL.toString());
+	} catch (e) { }
 
 	// UDP 分支：拆到独立函数（保留原逻辑）
 	if (首包.isUDP) return 处理XHTTPUDP请求(首包, reader, request, 反代上下文, responseHeaders);
@@ -4610,8 +4739,9 @@ function base64SecretDecode(encoded, secret) {
 
 function 获取传输协议配置(配置 = {}) {
 	const 是gRPC = 配置.传输协议 === 'grpc';
+	const { 头: 本机Padding头, 键: 本机Padding键 } = 获取XHTTPPadding标识(配置.UUID);
 	return {
-		type: 是gRPC ? (配置.gRPC模式 === 'multi' ? 'grpc&mode=multi' : 'grpc&mode=gun') : (配置.传输协议 === 'xhttp' ? 'xhttp&mode=stream-one' : 'ws'),
+		type: 是gRPC ? (配置.gRPC模式 === 'multi' ? 'grpc&mode=multi' : 'grpc&mode=gun') : (配置.传输协议 === 'xhttp' ? `xhttp&mode=stream-one&extra=%7B%22xPaddingObfsMode%22%3Atrue%2C%22xPaddingMethod%22%3A%22tokenish%22%2C%22xPaddingPlacement%22%3A%22queryInHeader%22%2C%22xPaddingHeader%22%3A%22${本机Padding头}%22%2C%22xPaddingKey%22%3A%22${本机Padding键}%22%7D` : 'ws'),
 		路径字段名: 是gRPC ? 'serviceName' : 'path',
 		域名字段名: 是gRPC ? 'authority' : 'host'
 	};
