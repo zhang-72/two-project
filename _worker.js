@@ -676,9 +676,12 @@ function 处理XHTTPUDP请求(首包, reader, request, 反代上下文, response
 				log(`[XHTTP转发] 处理失败: ${err?.message || err}`);
 				closeSocketQuietly(xhttpBridge);
 			} finally {
-				const 保持木马UDP反代下行 = !转发失败 && 首包.协议 === 'trojan' && 木马UDP上下文.反代地址 && 木马UDP上下文.反代Socket;
-				if (!保持木马UDP反代下行) try { 木马UDP上下文.反代Socket?.close() } catch (e) { }
-				try { reader.releaseLock() } catch (e) { }
+			const 保持木马UDP反代下行 = !转发失败 && 首包.协议 === 'trojan' && 木马UDP上下文.反代地址 && 木马UDP上下文.反代Socket;
+			if (!保持木马UDP反代下行) {
+				try { 木马UDP上下文.反代Socket?.close() } catch (e) { }
+				closeSocketQuietly(xhttpBridge);
+			}
+			try { reader.releaseLock() } catch (e) { }
 			}
 		},
 		cancel() {
