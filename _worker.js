@@ -596,8 +596,10 @@ async function 处理XHTTP请求(request, yourUUID, 反代上下文 = {}) {
 		await request.body.pipeTo(socket.writable, { signal: abortController.signal });
 	})();
 
-	// 下行：IdentityTransformStream（关键：不是 TransformStream，不耗 CPU）
-	const 响应流 = new IdentityTransformStream();
+	// 下行：优先使用 IdentityTransformStream（若运行时不支持则回退到 TransformStream）
+	const 响应流 = typeof IdentityTransformStream !== 'undefined'
+		? new IdentityTransformStream()
+		: new TransformStream();
 	const 下行Promise = (async () => {
 		const writer = 响应流.writable.getWriter();
 		try {
