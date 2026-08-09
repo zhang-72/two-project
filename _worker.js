@@ -647,7 +647,7 @@ async function 处理XHTTP请求(request, yourUUID, 反代上下文 = {}) {
 	// 响应端 padding（官方 ApplyXPaddingToResponse 对应，obfs queryInHeader：头名=本机Padding头，值为含 query 的 URL 形式）
 	// 客户端不校验响应 padding，仅作响应特征混淆；随机长度 100~1000
 	try {
-		const 响应URL = new URL(request.url);
+		const 响应URL = new URL('https://x.invalid/');
 		响应URL.searchParams.set(本机Padding键, 生成XHTTPPadding串(100 + Math.floor(Math.random() * 901)));
 		responseHeaders.set(本机Padding头, 响应URL.toString());
 	} catch (e) { }
