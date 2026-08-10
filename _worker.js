@@ -68,16 +68,16 @@ export default {
 			const 反代上下文 = await 反代参数获取(url, userID, 默认反代IP, 默认反代兜底);
 			log(`[WebSocket] 命中请求: ${url.pathname}${url.search}`);
 			return await 处理WS请求(request, userID, url, 反代上下文);
-		} else if (管理员密码 && !访问路径.startsWith('admin/') && 访问路径 !== 'login' && request.method === 'POST') {// gRPC/XHTTP代理
+		} else if (管理员密码 && !访问路径.startsWith('admin/') && 访问路径 !== 'login' && request.method === 'POST') {// gRPC/叉HTTP代理
 			const 反代上下文 = await 反代参数获取(url, userID, 默认反代IP, 默认反代兜底);
-			const { 头: 本机Padding头, 键: 本机Padding键 } = 获取XHTTPPadding标识(userID);
-			const 命中XHTTP特征 = !!request.headers.get(本机Padding头) || !!url.searchParams.get(本机Padding键);
-			if (!命中XHTTP特征 && contentType.startsWith('application/grpc')) {
+			const { 头: 本机Padding头, 键: 本机Padding键 } = 获取叉HTTPPadding标识(userID);
+			const 命中叉HTTP特征 = !!request.headers.get(本机Padding头) || !!url.searchParams.get(本机Padding键);
+			if (!命中叉HTTP特征 && contentType.startsWith('application/grpc')) {
 				log(`[gRPC] 命中请求: ${url.pathname}${url.search}`);
 				return await 处理gRPC请求(request, userID, 反代上下文);
 			}
-			log(`[XHTTP] 命中请求: ${url.pathname}${url.search}`);
-			return await 处理XHTTP请求(request, userID, 反代上下文);
+			log(`[叉HTTP] 命中请求: ${url.pathname}${url.search}`);
+			return await 处理叉HTTP请求(request, userID, 反代上下文);
 		} else {
 			if (url.protocol === 'http:') return Response.redirect(url.href.replace(`http://${url.hostname}`, `https://${url.hostname}`), 301);
 			if (!管理员密码) return fetch(Pages静态页面 + '/noADMIN').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); headers.set('Pragma', 'no-cache'); headers.set('Expires', '0'); return new Response(r.body, { status: 404, statusText: r.statusText, headers }) });
@@ -527,7 +527,7 @@ export default {
 		return new Response(await nginx(), { status: 200, headers: { 'Content-Type': 'text/html; charset=UTF-8' } });
 	}
 };
-///////////////////////////////////////////////////////////////////////XHTTP传输数据///////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////叉HTTP传输数据///////////////////////////////////////////////
 const HPACKHuffman码长 = [
 	13, 23, 28, 28, 28, 28, 28, 28, 28, 24, 30, 28, 28, 30, 28, 28,
 	28, 28, 28, 28, 28, 28, 30, 28, 28, 28, 28, 28, 28, 28, 28, 28,
@@ -548,7 +548,7 @@ const HPACKHuffman码长 = [
 	30
 ];
 
-function 获取XHTTPPadding标识(yourUUID) {
+function 获取叉HTTPPadding标识(yourUUID) {
 	return { 头: yourUUID.slice(1, 7), 键: '_' + yourUUID.slice(1, 7) };
 }
 
@@ -561,7 +561,7 @@ function 计算HPACKHuffman字节长度(字符串) {
 	return Math.ceil(总位数 / 8);
 }
 
-function 提取XHTTPPadding值(request, 本机Padding头, 本机Padding键) {
+function 提取叉HTTPPadding值(request, 本机Padding头, 本机Padding键) {
 	const 头值 = request.headers.get(本机Padding头);
 	if (头值) {
 		try {
@@ -575,29 +575,29 @@ function 提取XHTTPPadding值(request, 本机Padding头, 本机Padding键) {
 	return 请求URL.searchParams.get(本机Padding键) || '';
 }
 
-function 校验XHTTPPadding(request, 本机Padding头, 本机Padding键) {
-	const padding值 = 提取XHTTPPadding值(request, 本机Padding头, 本机Padding键);
+function 校验叉HTTPPadding(request, 本机Padding头, 本机Padding键) {
+	const padding值 = 提取叉HTTPPadding值(request, 本机Padding头, 本机Padding键);
 	if (!padding值) return true;
 	const huffman长度 = 计算HPACKHuffman字节长度(padding值);
 	return huffman长度 >= 98 && huffman长度 <= 1002;
 }
 
-const XHTTPBase62字符集 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-function 生成XHTTPPadding串(长度) {
-	const 字符集长度 = XHTTPBase62字符集.length;
+const 叉HTTPBase62字符集 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+function 生成叉HTTPPadding串(长度) {
+	const 字符集长度 = 叉HTTPBase62字符集.length;
 	let 结果 = '';
 	for (let i = 0; i < 长度; i++) {
-		结果 += XHTTPBase62字符集[Math.floor(Math.random() * 字符集长度)];
+		结果 += 叉HTTPBase62字符集[Math.floor(Math.random() * 字符集长度)];
 	}
 	return 结果;
 }
 
-async function 处理XHTTP请求(request, yourUUID, 反代上下文 = {}) {
+async function 处理叉HTTP请求(request, yourUUID, 反代上下文 = {}) {
 	if (!request.body) return new Response('Bad Request', { status: 400 });
-	const { 头: 本机Padding头, 键: 本机Padding键 } = 获取XHTTPPadding标识(yourUUID);
-	if (!校验XHTTPPadding(request, 本机Padding头, 本机Padding键)) return new Response('Bad Request', { status: 400 });
+	const { 头: 本机Padding头, 键: 本机Padding键 } = 获取叉HTTPPadding标识(yourUUID);
+	if (!校验叉HTTPPadding(request, 本机Padding头, 本机Padding键)) return new Response('Bad Request', { status: 400 });
 	const reader = request.body.getReader();
-	const 首包 = await 读取XHTTP首包(reader, yourUUID);
+	const 首包 = await 读取叉HTTP首包(reader, yourUUID);
 	if (!首包) {
 		try { reader.releaseLock() } catch (e) { }
 		return new Response('Invalid request', { status: 400 });
@@ -626,11 +626,11 @@ async function 处理XHTTP请求(request, yourUUID, 反代上下文 = {}) {
 
 	try {
 		const 响应URL = new URL('https://x.invalid/');
-		响应URL.searchParams.set(本机Padding键, 生成XHTTPPadding串(100 + Math.floor(Math.random() * 901)));
+		响应URL.searchParams.set(本机Padding键, 生成叉HTTPPadding串(100 + Math.floor(Math.random() * 901)));
 		responseHeaders.set(本机Padding头, 响应URL.toString());
 	} catch (e) { }
 
-	if (首包.isUDP) return 处理XHTTPUDP请求(首包, reader, request, 反代上下文, responseHeaders);
+	if (首包.isUDP) return 处理叉HTTPUDP请求(首包, reader, request, 反代上下文, responseHeaders);
 
 	try { reader.releaseLock() } catch (e) { }
 
@@ -650,7 +650,7 @@ async function 处理XHTTP请求(request, yourUUID, 反代上下文 = {}) {
 	try {
 		socket = await forwardataTCP(首包.hostname, 首包.port, 首包.rawData, 占位WS, 首包.respHeader, remoteConnWrapper, yourUUID, request, 反代上下文, 首包.协议 === 'trojan', 首包.原始数据, true);
 	} catch (err) {
-		log(`[XHTTP-Pipe] 连接失败: ${err?.message || err}`);
+		log(`[叉HTTP-Pipe] 连接失败: ${err?.message || err}`);
 		清理(err);
 		return new Response('bad gateway', { status: 502 });
 	}
@@ -686,7 +686,7 @@ async function 处理XHTTP请求(request, yourUUID, 反代上下文 = {}) {
 	return new Response(响应流.readable, { status: 200, headers: responseHeaders });
 }
 
-function 处理XHTTPUDP请求(首包, reader, request, 反代上下文, responseHeaders) {
+function 处理叉HTTPUDP请求(首包, reader, request, 反代上下文, responseHeaders) {
 	const 木马UDP上下文 = { 缓存: new Uint8Array(0), 反代地址: 反代上下文.木马反代地址 };
 	return new Response(new ReadableStream({
 		async start(controller) {
@@ -739,7 +739,7 @@ function 处理XHTTPUDP请求(首包, reader, request, 反代上下文, response
 				}
 			} catch (err) {
 				转发失败 = true;
-				log(`[XHTTP转发] 处理失败: ${err?.message || err}`);
+				log(`[叉HTTP转发] 处理失败: ${err?.message || err}`);
 				closeSocketQuietly(叉桥);
 			} finally {
 				const 保持木马UDP反代下行 = !转发失败 && 首包.协议 === 'trojan' && 木马UDP上下文.反代地址 && 木马UDP上下文.反代Socket;
@@ -790,7 +790,7 @@ function 开始TCP连接世代(remoteConnWrapper) {
 	return { generation, downlinkDrain };
 }
 
-async function 读取XHTTP首包(reader, token) {
+async function 读取叉HTTP首包(reader, token) {
 	const decoder = VLESS文本解码器;
 
 	const 尝试解析魏烈思首包 = (data) => {
@@ -4676,7 +4676,7 @@ function base64SecretDecode(encoded, secret) {
 
 function 获取传输协议配置(配置 = {}) {
 	const 是gRPC = 配置.传输协议 === 'grpc';
-	const { 头: 本机Padding头, 键: 本机Padding键 } = 获取XHTTPPadding标识(配置.UUID);
+	const { 头: 本机Padding头, 键: 本机Padding键 } = 获取叉HTTPPadding标识(配置.UUID);
 	return {
 		type: 是gRPC ? (配置.gRPC模式 === 'multi' ? 'grpc&mode=multi' : 'grpc&mode=gun') : (配置.传输协议 === 'xhttp' ? `xhttp&mode=stream-one&extra=%7B%22xPaddingObfsMode%22%3Atrue%2C%22xPaddingMethod%22%3A%22tokenish%22%2C%22xPaddingPlacement%22%3A%22queryInHeader%22%2C%22xPaddingHeader%22%3A%22${本机Padding头}%22%2C%22xPaddingKey%22%3A%22${本机Padding键}%22%7D` : 'ws'),
 		路径字段名: 是gRPC ? 'serviceName' : 'path',
