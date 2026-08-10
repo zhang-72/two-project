@@ -549,7 +549,7 @@ const HPACKHuffman码长 = [
 ];
 
 function 获取叉HTTPPadding标识(yourUUID) {
-	return { 头: yourUUID.slice(1, 7), 键: '_' + yourUUID.slice(1, 7) };
+	return { 头: yourUUID.slice(1, 7), 键: '_' + yourUUID.slice(25, 31) };
 }
 
 function 计算HPACKHuffman字节长度(字符串) {
@@ -4677,8 +4677,15 @@ function base64SecretDecode(encoded, secret) {
 function 获取传输协议配置(配置 = {}) {
 	const 是gRPC = 配置.传输协议 === 'grpc';
 	const { 头: 本机Padding头, 键: 本机Padding键 } = 获取叉HTTPPadding标识(配置.UUID);
+	const 叉混淆JSON = {
+		"xPaddingObfsMode": true,
+		"xPaddingMethod": "tokenish",
+		"xPaddingPlacement": "queryInHeader",
+		"xPaddingHeader": 本机Padding头,
+		"xPaddingKey": 本机Padding键
+	};
 	return {
-		type: 是gRPC ? (配置.gRPC模式 === 'multi' ? 'grpc&mode=multi' : 'grpc&mode=gun') : (配置.传输协议 === 'xhttp' ? `xhttp&mode=stream-one&extra=%7B%22xPaddingObfsMode%22%3Atrue%2C%22xPaddingMethod%22%3A%22tokenish%22%2C%22xPaddingPlacement%22%3A%22queryInHeader%22%2C%22xPaddingHeader%22%3A%22${本机Padding头}%22%2C%22xPaddingKey%22%3A%22${本机Padding键}%22%7D` : 'ws'),
+		type: 是gRPC ? (配置.gRPC模式 === 'multi' ? 'grpc&mode=multi' : 'grpc&mode=gun') : (配置.传输协议 === 'xhttp' ? `xhttp&mode=stream-one&extra=${encodeURIComponent(JSON.stringify(叉混淆JSON))}` : 'ws'),
 		路径字段名: 是gRPC ? 'serviceName' : 'path',
 		域名字段名: 是gRPC ? 'authority' : 'host'
 	};
