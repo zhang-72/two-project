@@ -662,7 +662,7 @@ async function 处理叉HTTP请求(request, yourUUID, 反代上下文 = {}) {
 	const 上行Promise = (async () => {
 		const 上行合包器 = 创建上行Grain合包流();
 		const 搬运Promise = 上行合包器.readable.pipeTo(socket.writable, { signal: abortController.signal });
-		void 搬运Promise.catch(() => { });
+		void 搬运Promise.catch(清理);
 		const 上行reader = request.body.getReader();
 		const 取消上行reader = () => {
 			try { 上行reader.cancel(abortController.signal.reason).catch(() => { }); } catch (e) { }
@@ -2644,8 +2644,9 @@ function 创建上行Grain合包流(目标字节 = 上行合包目标字节) {
 		写入: async (chunk) => {
 			const data = 数据转Uint8Array(chunk);
 			if (!data.byteLength) return;
-			if (缓冲长度 === 0 && data.byteLength >= 目标字节) {
+			if (data.byteLength >= 目标字节) {
 				清理定时器();
+				if (缓冲长度) await 冲刷();
 				await 串行写(data);
 				return;
 			}
