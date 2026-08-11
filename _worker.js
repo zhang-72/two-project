@@ -2604,6 +2604,7 @@ function 创建上行Grain合包流(目标字节 = 上行合包目标字节) {
 	let 缓冲长度 = 0;
 	let 定时器 = null;
 	let 在途写 = null;
+	let 冲刷链 = Promise.resolve();
 
 	const 清理定时器 = () => {
 		if (定时器) {
@@ -2626,11 +2627,15 @@ function 创建上行Grain合包流(目标字节 = 上行合包目标字节) {
 		}
 	};
 
+	const 排队冲刷 = () => {
+		冲刷链 = 冲刷链.then(() => 冲刷()).catch(() => { });
+	};
+
 	const 启动定时器 = () => {
 		if (定时器) return;
 		定时器 = setTimeout(() => {
 			定时器 = null;
-			冲刷().catch(e => { });
+			排队冲刷();
 		}, 1);
 	};
 
@@ -2660,6 +2665,7 @@ function 创建上行Grain合包流(目标字节 = 上行合包目标字节) {
 		结束: async () => {
 			清理定时器();
 			try {
+				await 冲刷链;
 				await 冲刷();
 				await writer.close();
 			} finally {
