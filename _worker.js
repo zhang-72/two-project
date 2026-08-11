@@ -764,9 +764,12 @@ function 处理叉HTTPUDP请求(首包, reader, request, 反代上下文, respon
 				log(`[叉HTTP转发] 处理失败: ${err?.message || err}`);
 				closeSocketQuietly(叉桥);
 			} finally {
-				const 保持木马UDP反代下行 = !转发失败 && 首包.协议 === 'trojan' && 木马UDP上下文.反代地址 && 木马UDP上下文.反代Socket;
-				if (!保持木马UDP反代下行) try { 木马UDP上下文.反代Socket?.close() } catch (e) { }
-				try { reader.releaseLock() } catch (e) { }
+			const 保持木马UDP反代下行 = !转发失败 && 首包.协议 === 'trojan' && 木马UDP上下文.反代地址 && 木马UDP上下文.反代Socket;
+			if (!保持木马UDP反代下行) {
+				try { 木马UDP上下文.反代Socket?.close() } catch (e) { }
+				closeSocketQuietly(叉桥);
+			}
+			try { reader.releaseLock() } catch (e) { }
 			}
 		},
 		cancel() {
