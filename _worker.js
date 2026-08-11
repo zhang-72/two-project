@@ -1,4 +1,4 @@
-﻿const Version = '2026-08-10 03:09:01';
+﻿const Version = '2026-08-11 14:45:22';
 let config_JSON, 缓存SOCKS5白名单 = null, 调试日志打印 = false;
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
@@ -641,7 +641,7 @@ async function 处理叉HTTP请求(request, yourUUID, 反代上下文 = {}) {
 		if (已清理) return;
 		已清理 = true;
 		try { abortController.abort(reason) } catch (e) { }
-		失效TCP连接世代(remoteConnWrapper); // 关闭 socket + 世代 +1
+		失效TCP连接世代(remoteConnWrapper);
 	};
 
 	const 占位WS = { readyState: WebSocket.OPEN };
@@ -660,7 +660,29 @@ async function 处理叉HTTP请求(request, yourUUID, 反代上下文 = {}) {
 	}
 
 	const 上行Promise = (async () => {
-		await request.body.pipeTo(socket.writable, { signal: abortController.signal });
+		const 上行合包器 = 创建上行Grain合包流();
+		const 搬运Promise = 上行合包器.readable.pipeTo(socket.writable, { signal: abortController.signal });
+		void 搬运Promise.catch(清理);
+		const 上行reader = request.body.getReader();
+		const 取消上行reader = () => {
+			try { 上行reader.cancel(abortController.signal.reason).catch(() => { }); } catch (e) { }
+		};
+		abortController.signal.addEventListener('abort', 取消上行reader, { once: true });
+		try {
+			try {
+				while (true) {
+					const { done, value } = await 上行reader.read();
+					if (done) break;
+					if (value?.byteLength) await 上行合包器.写入(value);
+				}
+			} finally {
+				abortController.signal.removeEventListener('abort', 取消上行reader);
+				try { 上行reader.releaseLock() } catch (e) { }
+			}
+		} finally {
+			try { await 上行合包器.结束() } catch (e) { }
+		}
+		await 搬运Promise;
 	})();
 
 	const 响应流 = typeof IdentityTransformStream !== 'undefined'
@@ -2572,6 +2594,87 @@ function 创建Grain收纳器(容量, 复制合包结果 = false) {
 			压缩();
 			const bundled = output.subarray(0, totalBytes);
 			return { chunk: 复制合包结果 ? bundled.slice() : bundled, items };
+		}
+	};
+}
+
+function 创建上行Grain合包流(目标字节 = 上行合包目标字节) {
+	const identity = typeof IdentityTransformStream !== 'undefined'
+		? new IdentityTransformStream()
+		: new TransformStream();
+	const writer = identity.writable.getWriter();
+	const 缓冲 = new Uint8Array(目标字节);
+	let 缓冲长度 = 0;
+	let 定时器 = null;
+	let 在途写 = null;
+	let 冲刷链 = Promise.resolve();
+
+	const 清理定时器 = () => {
+		if (定时器) {
+			clearTimeout(定时器);
+			定时器 = null;
+		}
+	};
+
+	const 串行写 = async (chunk) => {
+		if (在途写) await 在途写;
+		在途写 = writer.write(chunk);
+		try { await 在途写 } finally { 在途写 = null; }
+	};
+
+	const 冲刷 = async () => {
+		if (缓冲长度) {
+			const chunk = 缓冲.slice(0, 缓冲长度);
+			缓冲长度 = 0;
+			await 串行写(chunk);
+		}
+	};
+
+	const 排队冲刷 = () => {
+		冲刷链 = 冲刷链.then(() => 冲刷()).catch(() => { });
+	};
+
+	const 启动定时器 = () => {
+		if (定时器) return;
+		定时器 = setTimeout(() => {
+			定时器 = null;
+			排队冲刷();
+		}, 1);
+	};
+
+	return {
+		readable: identity.readable,
+		写入: async (chunk) => {
+			const data = 数据转Uint8Array(chunk);
+			if (!data.byteLength) return;
+			if (data.byteLength >= 目标字节) {
+				清理定时器();
+				if (缓冲长度) await 冲刷();
+				await 串行写(data);
+				return;
+			}
+			if (缓冲长度 + data.byteLength >= 目标字节) {
+				const output = new Uint8Array(缓冲长度 + data.byteLength);
+				output.set(缓冲.subarray(0, 缓冲长度), 0);
+				output.set(data, 缓冲长度);
+				缓冲长度 = 0;
+				清理定时器();
+				await 串行写(output);
+			} else {
+				缓冲.set(data, 缓冲长度);
+				缓冲长度 += data.byteLength;
+				启动定时器();
+			}
+		},
+		结束: async () => {
+			清理定时器();
+			try {
+				await 冲刷链;
+				await 冲刷();
+				await writer.close();
+			} finally {
+				try { writer.releaseLock() } catch (e) { }
+			}
 		}
 	};
 }
