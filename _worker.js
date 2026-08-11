@@ -641,7 +641,7 @@ async function 处理叉HTTP请求(request, yourUUID, 反代上下文 = {}) {
 		if (已清理) return;
 		已清理 = true;
 		try { abortController.abort(reason) } catch (e) { }
-		失效TCP连接世代(remoteConnWrapper); // 关闭 socket + 世代 +1
+		失效TCP连接世代(remoteConnWrapper);
 	};
 
 	const 占位WS = { readyState: WebSocket.OPEN };
@@ -660,7 +660,21 @@ async function 处理叉HTTP请求(request, yourUUID, 反代上下文 = {}) {
 	}
 
 	const 上行Promise = (async () => {
-		await request.body.pipeTo(socket.writable, { signal: abortController.signal });
+		const 上行合包器 = 创建上行Grain合包流();
+		const 搬运Promise = 上行合包器.readable.pipeTo(socket.writable, { signal: abortController.signal });
+		void 搬运Promise.catch(() => { });
+		const 上行reader = request.body.getReader();
+		try {
+			while (true) {
+				const { done, value } = await 上行reader.read();
+				if (done) break;
+				if (value?.byteLength) await 上行合包器.写入(value);
+			}
+			await 上行合包器.结束();
+		} finally {
+			try { 上行reader.releaseLock() } catch (e) { }
+		}
+		await 搬运Promise;
 	})();
 
 	const 响应流 = typeof IdentityTransformStream !== 'undefined'
@@ -2569,6 +2583,78 @@ function 创建Grain收纳器(容量, 复制合包结果 = false) {
 			压缩();
 			const bundled = output.subarray(0, totalBytes);
 			return { chunk: 复制合包结果 ? bundled.slice() : bundled, items };
+		}
+	};
+}
+
+function 创建上行Grain合包流(目标字节 = 上行合包目标字节) {
+	const identity = typeof IdentityTransformStream !== 'undefined'
+		? new IdentityTransformStream()
+		: new TransformStream();
+	const writer = identity.writable.getWriter();
+	let 缓冲 = new Uint8Array(0);
+	let 定时器 = null;
+	let 在途写 = null;
+
+	const 清理定时器 = () => {
+		if (定时器) {
+			clearTimeout(定时器);
+			定时器 = null;
+		}
+	};
+
+	const 冲刷 = async () => {
+		if (缓冲.byteLength) {
+			const chunk = 缓冲;
+			缓冲 = new Uint8Array(0);
+			在途写 = writer.write(chunk);
+			try { await 在途写 } finally { 在途写 = null; }
+		}
+	};
+
+	const 启动定时器 = () => {
+		if (定时器) return;
+		定时器 = setTimeout(() => {
+			定时器 = null;
+			冲刷().catch(e => { });
+		}, 1);
+	};
+
+	return {
+		readable: identity.readable,
+		写入: async (chunk) => {
+			if (在途写) await 在途写;
+			const data = 数据转Uint8Array(chunk);
+			if (!data.byteLength) return;
+			if (缓冲.byteLength === 0 && data.byteLength >= 目标字节) {
+				清理定时器();
+				await writer.write(data);
+				return;
+			}
+			const 合并后 = 缓冲.byteLength + data.byteLength;
+			if (合并后 >= 目标字节) {
+				const output = new Uint8Array(合并后);
+				output.set(缓冲, 0);
+				output.set(data, 缓冲.byteLength);
+				缓冲 = new Uint8Array(0);
+				清理定时器();
+				await writer.write(output);
+			} else {
+				const output = new Uint8Array(合并后);
+				output.set(缓冲, 0);
+				output.set(data, 缓冲.byteLength);
+				缓冲 = output;
+				启动定时器();
+			}
+		},
+		结束: async () => {
+			清理定时器();
+			try {
+				await 冲刷();
+				await writer.close();
+			} finally {
+				try { writer.releaseLock() } catch (e) { }
+			}
 		}
 	};
 }
